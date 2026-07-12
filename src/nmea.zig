@@ -27,19 +27,32 @@ pub const GgaData = struct {
     }
 };
 
-/// Verify the NMEA 0183 checksum of a sentence (without the leading '$').
-/// The sentence must include the '*' and 2-digit hex checksum at the end.
+/// Strip trailing line terminators that real serial/NMEA feeds append.
+fn trimCrlf(s: []const u8) []const u8 {
+    var slice = s;
+    while (slice.len > 0 and (slice[slice.len - 1] == '\r' or slice[slice.len - 1] == '\n')) {
+        slice = slice[0 .. slice.len - 1];
+    }
+    return slice;
+}
+
+/// Verify the NMEA 0183 checksum of a sentence (with or without the leading '$').
+/// The sentence may end with optional '\r'/'\n' terminators and must include
+/// the '*' and 2-digit hex checksum before those terminators.
 pub fn verifyChecksum(sentence: []const u8) bool {
+    const trimmed = trimCrlf(sentence);
+    if (trimmed.len == 0) return false;
+
     // Find the asterisk separating data from checksum
-    const asterisk = std.mem.lastIndexOfScalar(u8, sentence, '*') orelse return false;
-    if (asterisk + 3 != sentence.len) return false;
+    const asterisk = std.mem.lastIndexOfScalar(u8, trimmed, '*') orelse return false;
+    if (asterisk + 3 != trimmed.len) return false;
 
     // Extract the checksum hex digits
-    const checksum_hex = sentence[asterisk + 1 ..];
+    const checksum_hex = trimmed[asterisk + 1 ..];
     const expected = std.fmt.parseInt(u8, checksum_hex, 16) catch return false;
 
     // XOR all bytes between start (skip '$') and the asterisk
-    const data = if (sentence[0] == '$') sentence[1..asterisk] else sentence[0..asterisk];
+    const data = if (trimmed[0] == '$') trimmed[1..asterisk] else trimmed[0..asterisk];
     var computed: u8 = 0;
     for (data) |c| {
         computed ^= c;
@@ -51,8 +64,9 @@ pub fn verifyChecksum(sentence: []const u8) bool {
 /// Parse a GGA sentence (with or without leading '$').
 /// Returns error.InvalidChecksum, error.InvalidSentence, or error.Overflow on failure.
 pub fn parseGga(sentence: []const u8) !GgaData {
-    // Strip leading '$' if present
-    const s = if (sentence.len > 0 and sentence[0] == '$') sentence[1..] else sentence;
+    // Strip leading '$' and trailing CRLF if present.
+    var s = if (sentence.len > 0 and sentence[0] == '$') sentence[1..] else sentence;
+    s = trimCrlf(s);
 
     if (!verifyChecksum(sentence))
         return error.InvalidChecksum;
@@ -165,6 +179,16 @@ test "parseGga valid sentence" {
     try testing.expectEqual(data.satellites, 8);
     try testing.expectApproxEqAbs(data.hdop, 0.9, 0.01);
     try testing.expectApproxEqAbs(data.altitude, 545.4, 0.01);
+}
+
+test "parseGga CRLF terminated" {
+    const data = try parseGga("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n");
+    try testing.expectApproxEqAbs(data.lat, 48.1173, 0.0001);
+    try testing.expectApproxEqAbs(data.lon, 11.5167, 0.0001);
+}
+
+test "verifyChecksum CRLF terminated" {
+    try testing.expect(verifyChecksum("$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47\r\n"));
 }
 
 test "parseGga checksum error" {
