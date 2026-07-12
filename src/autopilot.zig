@@ -50,13 +50,17 @@ pub const PID = struct {
 
         const err_val = raw_error;
 
-        // Integral term with anti-windup
-        self.integral += err_val * dt;
-        // Clamp integral
-        const max_integral = self.max_rudder / self.ki;
-        const min_integral = -self.max_rudder / self.ki;
-        if (self.integral > max_integral) self.integral = max_integral;
-        if (self.integral < min_integral) self.integral = min_integral;
+        // Integral term with anti-windup (skip when Ki is zero to avoid
+        // division by zero and meaningless integral growth).
+        if (self.ki != 0.0) {
+            self.integral += err_val * dt;
+            const max_integral = self.max_rudder / self.ki;
+            const min_integral = -self.max_rudder / self.ki;
+            if (self.integral > max_integral) self.integral = max_integral;
+            if (self.integral < min_integral) self.integral = min_integral;
+        } else {
+            self.integral = 0;
+        }
 
         // Derivative term
         const derivative = if (dt > 0.0) (err_val - self.last_error) / dt else 0.0;
@@ -149,6 +153,16 @@ test "PID reset clears integrator" {
     // After reset, integral should be 0, error is 0
     try testing.expectApproxEqAbs(result.rudder_command, 0.0, 0.001);
     try testing.expect(result.on_course);
+}
+
+test "PID ki zero avoids division by zero" {
+    var pid = PID.init(1.0, 0.0, 0.0, 30.0, 1.0);
+    const result = pid.update(175.0, 180.0, 1.0);
+    // With Ki=0 there is no integral term and no FPE from max_integral.
+    try testing.expectApproxEqAbs(result.rudder_command, 5.0, 0.001);
+    try testing.expectApproxEqAbs(result.heading_error, 5.0, 0.001);
+    // Integral must remain clamped at zero.
+    try testing.expectApproxEqAbs(pid.integral, 0.0, 0.001);
 }
 
 test "PID integral anti-windup" {
