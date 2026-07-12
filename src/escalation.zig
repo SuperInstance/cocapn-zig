@@ -28,19 +28,22 @@ pub const EscalationChain = struct {
     pub fn escalate(self: *EscalationChain) Tier {
         if (self.current_tier == .cloud) return .cloud;
 
-        // Check cooldown
+        // Use a single timestamp for both the cooldown check and the recorded
+        // escalation instant to avoid a race where the clock advances between
+        // the two samples. If the monotonic clock is unavailable, fail safe and
+        // do not escalate.
+        const now = std.time.Instant.now() catch return self.current_tier;
+
         if (self.last_escalation) |last| {
-            if (std.time.Instant.now()) |now| {
-                const elapsed = now.since(last) / 1_000_000; // ms
-                if (elapsed < self.cooldown_ms) {
-                    return self.current_tier; // cooldown hasn't elapsed
-                }
-            } else |_| {}
+            const elapsed = now.since(last) / 1_000_000; // ms
+            if (elapsed < self.cooldown_ms) {
+                return self.current_tier; // cooldown hasn't elapsed
+            }
         }
 
         self.current_tier = self.current_tier.next();
         self.escalation_count += 1;
-        self.last_escalation = std.time.Instant.now() catch null;
+        self.last_escalation = now;
         return self.current_tier;
     }
 
