@@ -1,12 +1,29 @@
 name: CI
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+      - production-round4-2026-07-11
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "No CI configured — customize per project requirements"
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: Check formatting
+        run: zig fmt --check src/*.zig build.zig
+      - name: Build library
+        run: zig build
+      - name: Run tests
+        run: zig build test --summary all
+      - name: Cross-compile bare-metal targets
+        run: |
+          zig build -Dtarget=arm-freestanding-eabihf
+          zig build -Dtarget=riscv64-freestanding
