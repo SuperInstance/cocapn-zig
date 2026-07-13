@@ -119,9 +119,15 @@ CoCapn Zig Core
 └── root.zig        — Public API root
 ```
 
+### Status & known limitations
+
+- CI is now a real workflow (`zig fmt --check`, `zig build`, `zig build test`, and cross-compiles for ARM/RISC-V).
+- NMEA 0183 parsing accepts sentences terminated with `\r`, `\n`, or `\r\n`.
+- `escalation.zig` cooldown uses the host monotonic clock (`std.time.Instant`). Pure freestanding/bare-metal targets will need to wire in their own clock source before using tier escalation.
+
 ### Tests
 
-62 tests covering all modules. Run with:
+66 tests covering all modules. Run with:
 
 ```bash
 zig build test
